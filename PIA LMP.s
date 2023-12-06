@@ -22,7 +22,7 @@ tmp_ptr_selslide_High = $0009	   ;Variable acomuladora (High byte), contiene el 
 ;;;;;;;;;;;;;;;;;REFERENTE AL ARREGLO DE SLIDES;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 arreglo_de_punteros_a_slides:     			  ;Hardcoded, lo sé.
-  .byte $73, $81, $73, $85, $73, $89, $73, $8D, $73, $91, $73, $95       ;Arreglo de punteros a diapositivas
+  .byte $76, $81, $76, $85, $76, $89, $76, $8D, $76, $91, $76, $95       ;Arreglo de punteros a diapositivas
 
 head_arr_ptr_slide = $0010        			  ;Puntero al primer elemento en la lista (despues de copiarse en RAM)
 length_arr_ptr_slide = $0C        			  ;Tamaño del arreglo
@@ -114,7 +114,6 @@ copiar_a_RAM_arr_ptr_bg:		     ;Copiando el arreglo de ROM a RAM
 jsr select_slide_ptr                     
 jsr Apuntando_write_fondo
 
-
 ;;;;;;;;;;;;;;;;NMI;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 nmi:			         ;El NMI se ejecuta al antes de que la PPU comienze a dibujar cada frame
@@ -125,35 +124,47 @@ nmi:			         ;El NMI se ejecuta al antes de que la PPU comienze a dibujar cad
   jsr configurando_PPU     ;Activamos la PPU   
   jsr prep_leer_controles  ;Leeremos los controles en cada frame
 
+;;;;;;;;;;;;;PARA LOS BOTONES CAMBIAMOS SLIDE;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;;;;;;;;;;;;PARA EL BOTÓN A CAMBIAMOS SLIDE;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
+leer_AB:	;Evita bugs cuando presionas AB al mismo tiempo (mitad de la pantalla de otro fondo)
+  clc
+  lda control1
+  and #%11000000
+  cmp #%11000000
+  beq nmi
 
 leer_boton_A:	     ;Control1 guarda el byte que representa los botones presionados en el momento
   clc
   lda control1
   and #%10000000        ;Queremos ver si esta siendo presionado A, entonces lo aislaremos
   cmp #%10000000        ;Y lo comparamos para ver si sí.
-  beq set_is_a_pressed  ;Si resulta ser verdad, entonces vamos a actualizar is_a_pressed
+  jsr seeIF_a_was_pressed  ;Si resulta ser verdad, entonces vamos a actualizar is_a_pressed
+
+leer_boton_B:	;Control1 guarda el byte que representa los botones presionados en el momento
+  clc
+  lda control1
+  and #%01000000        ;Queremos ver si esta siendo presionado B, entonces lo aislaremos
+  cmp #%01000000        ;Y lo comparamos para ver si sí.
+  jsr seeIF_b_was_pressed  ;Si resulta ser verdad, entonces vamos a actualizar is_b_pressed
+  jmp nmi
+
+seeIF_a_was_pressed:
+  beq set_is_a_pressed
   ldy is_a_pressed      ;Si no, guardamos is_a_pressed a old_is_a_pressed
   sty old_is_a_pressed
   ldy #$00              ;Y actualizamos is_a_pressed
   sty is_a_pressed      
-  jsr select_slide_ptr  ;Volvemos a actualizar los punteros de slide
-  jsr leer_boton_B      ;Vamos a leer el botón B para regresar
-  jmp nmi               ;Nota: Por alguna extraña razón tenemos que volver a NMI si no que-
-  rts                   ;remos ver el bug del salto a código basura
+  rts
 
 set_is_a_pressed:       ;Actualizando  is_a_pressed
   ldy is_a_pressed      ;Guardamos el valor anterior a old_is_a_pressed
   sty old_is_a_pressed
   ldy #$01              ;Hacemos 1 a is_a_pressed
   sty is_a_pressed
-
-lda old_is_a_pressed  ;Nos preparamos para actualizar la variable contadora de diapositivas
-eor is_a_pressed      ;Ex-OR de old_is_a_pressed con is_a_pressed (esto es para saber si se dejó de presionar el botón en el frame anterior)
-bne subir_slide       ;Si NO está siendo presionado A del frame anterior al actual, entonces subimos el contador. 
-rts
+  lda old_is_a_pressed  ;Nos preparamos para actualizar la variable contadora de diapositivas
+  eor is_a_pressed      ;Ex-OR de old_is_a_pressed con is_a_pressed (esto es para saber si se dejó de presionar el botón en el frame anterior)
+  bne subir_slide       ;Si NO está siendo presionado A del frame anterior al actual, entonces subimos el contador. 
+  rts
 
 subir_slide:              ;Subirmos current_slide y verificaremos que no estamos Out of Bounds de la presentación
   inc current_slide
@@ -164,27 +175,19 @@ subir_slide:              ;Subirmos current_slide y verificaremos que no estamos
   jsr Apuntando_write_fondo
   rts
 
-cap_current_slide:        ;Regresamos current_slide a 0, esto es para que la presentación de cicle.
+cap_current_slide:        ;Regresamos current_slide a 0, esto es para que la presentación se cicle.
   lda #$00
   sta current_slide  
   jsr select_slide_ptr
   jsr Apuntando_write_fondo
   rts
 
-;;;;;;;;;;;;;PARA EL BOTÓN B CAMBIAMOS SLIDE (PARA ATRÁS) ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-leer_boton_B:	;Control1 guarda el byte que representa los botones presionados en el momento
-  clc	
-  lda control1
-  and #%01000000        ;Queremos ver si esta siendo presionado B, entonces lo aislaremos
-  cmp #%01000000        ;Y lo comparamos para ver si sí.
-  beq set_is_b_pressed  ;Si resulta ser verdad, entonces vamos a actualizar is_b_pressed
+seeIF_b_was_pressed:
+  beq set_is_b_pressed
   ldy is_b_pressed      ;Si no, guardamos is_b_pressed a old_is_b_pressed
   sty old_is_b_pressed
   ldy #$00              ;Y actualizamos is_b_pressed
   sty is_b_pressed
-  jsr select_slide_ptr
   rts
 
 set_is_b_pressed:       ;Actualizando  is_b_pressed
@@ -192,11 +195,10 @@ set_is_b_pressed:       ;Actualizando  is_b_pressed
   sty old_is_b_pressed
   ldy #$01              ;Hacemos 1 a is_b_pressed
   sty is_b_pressed
-
-lda old_is_b_pressed  ;Nos preparamos para actualizar la variable contadora de diapositivas
-eor is_b_pressed      ;Ex-OR de old_is_b_pressed con is_b_pressed (esto es para saber si se dejó de presionar el botón en el frame anterior)
-bne bajar_slide       ;Si NO está siendo presionado B del frame anterior al actual, entonces bajaremos el contador. 
-rts
+  lda old_is_b_pressed  ;Nos preparamos para actualizar la variable contadora de diapositivas
+  eor is_b_pressed      ;Ex-OR de old_is_b_pressed con is_b_pressed (esto es para saber si se dejó de presionar el botón en el frame anterior)
+  bne bajar_slide       ;Si NO está siendo presionado B del frame anterior al actual, entonces bajaremos el contador.
+  rts
 
 bajar_slide:                  ;Bajamos current_slide y verificaremos que no estamos Out of Bounds de la "presentación"
   dec current_slide
@@ -250,8 +252,6 @@ Cargando_slide_ciclo2:
   inx                             ;Aumentamos el registro X para seguir a la siguiente linea
   cpx #$04                        ;Vemos si ya copiamos $04 lineas
   bne Cargando_slide_ciclo1       ;Si no, ciclamos hasta arriba
-
-  jsr select_slide_ptr            ;Re configuramos los punteros para evitar corrupción de datos.
 
   lda #%00011010	                 ; Encendiendo la PPU de nuevo
   sta $2001
@@ -545,7 +545,7 @@ attribute_3:
 bg_4:
   .byte _,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_
   .byte _,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_
-  .byte _,_,interr_apertu,Q,U,E,_,_A,P,R,E,N,D,I,M,O,S,interr_cierre,_,C,O,N,C,L,U,C,I,O,N,E,S,_
+  .byte _,_,interr_apertu,Q,U,E,_,_A,P,R,E,N,D,I,M,O,S,interr_cierre,_,C,O,N,C,L,U,S,I,O,N,E,S,_
   .byte _,_,D,E,L,_,P,R,O,_Y,E,C,T,O,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_
   .byte _,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,$AB,$AD
   .byte _,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,$AC,$AE
